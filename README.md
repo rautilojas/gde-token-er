@@ -1,100 +1,65 @@
 # Token Service — GDE Entre Ríos
 
-Adaptación del instalador MSI del componente de firma digital utilizado por GDE, para permitir su utilización desde la extensión de Chrome **Firma con token** en la plataforma GDE Entre Ríos.
+Adaptación del instalador MSI del componente de firma digital nativo utilizado por el sistema GDE. Esta versión modifica los orígenes permitidos para habilitar la comunicación desde la extensión de Chrome **Firma con token** específica de la plataforma GDE Entre Ríos.
 
 ## Descripción
 
-Este proyecto contiene el empaquetado MSI del componente nativo utilizado para realizar operaciones de firma digital mediante token/certificado desde Google Chrome.
+Este proyecto contiene el proceso de reempaquetado del instalador MSI original. El componente instala y registra un **Native Messaging Host** en el sistema operativo, el cual sirve de puente entre el navegador y el dispositivo criptográfico (token USB).
 
-El instalador original registra un **Native Messaging Host** denominado:
-
-```text
-gcbatoken
-```
-
-El objetivo de esta adaptación es mantener la implementación nativa existente (`tokensign.exe`) y modificar el manifiesto de Native Messaging para autorizar la extensión de Chrome utilizada por GDE Entre Ríos.
-
-### Extensión de Chrome
-
-```text
-ID: pliddliphajaldpdihheppcdmoejfafn
-Nombre: Firma con token
-```
+### Extensión de Chrome (Entre Ríos)
+* **ID:** `pliddliphajaldpdihheppcdmoejfafn`
+* **Nombre:** Firma con token
 
 ### Native Messaging Host
+* **Nombre:** `gcbatoken`
+* **Ejecutable local:** `tokensign.exe`
+* **Tipo:** `stdio`
 
-```text
-Nombre: gcbatoken
-Tipo: stdio
-Ejecutable: tokensign.exe
-```
+---
 
-## Arquitectura
+## Arquitectura de Comunicación
+
+El flujo de firma digital requiere que la página web se comunique con la extensión, y que esta, a su vez, invoque el binario local instalado por este MSI.
 
 ```text
 ┌──────────────────────────────┐
 │       GDE Entre Ríos         │
-│      *.entrerios.gov.ar      │
+│     *.entrerios.gov.ar       │
 └──────────────┬───────────────┘
                │
-               │ External Messaging
+               │ (externally_connectable)
                ▼
 ┌──────────────────────────────┐
 │ Chrome Extension             │
 │ "Firma con token"            │
-│                              │
-│ pliddliphajaldpdihheppcdmoejfafn │
+│ ID: pliddliphajaldpdih...    │
 └──────────────┬───────────────┘
                │
-               │ Native Messaging
-               │ connectNative()
+               │ chrome.runtime.connectNative("gcbatoken")
                ▼
 ┌──────────────────────────────┐
 │ gcbatoken                    │
-│ Native Messaging Host        │
+│ (Native Messaging Host)      │
 └──────────────┬───────────────┘
                │
+               │ (Validación vía cnmtoken.json)
                ▼
 ┌──────────────────────────────┐
 │ tokensign.exe                │
-│ Componente nativo de firma   │
+│ (Interacción con Token USB)  │
 └──────────────────────────────┘
+
 ```
 
-## Archivos principales
+---
 
-```text
-.
-├── README.md
-├── msi/
-│   └── token-service-entrerios.msi
-├── native-host/
-│   └── cnmtoken.json
-└── source/
-    └── ...
-```
+## Modificación Realizada
 
-> La estructura puede modificarse según las herramientas utilizadas para reconstruir el MSI.
+El instalador original restringe la comunicación a un conjunto cerrado de extensiones mediante el archivo de manifiesto `cnmtoken.json`.
 
-## Modificación realizada
+La adaptación desempaqueta el MSI original y agrega el ID de la extensión de GDE Entre Ríos al array `allowed_origins`, manteniendo intacto el binario ejecutable y el resto del comportamiento.
 
-El instalador original contiene un manifiesto `cnmtoken.json` similar a:
-
-```json
-{
-  "name": "gcbatoken",
-  "description": "GCBA Firma Digital",
-  "path": "tokensign.exe",
-  "type": "stdio",
-  "allowed_origins": [
-    "chrome-extension://copfinchbmcbjdffipaphabmjnnhijhe/",
-    "chrome-extension://dcecmgaholkhgdkebcpgdjemmcmflpmf/",
-    "chrome-extension://dmlhldehdinlhohacalhlkpcjigmommf/"
-  ]
-}
-```
-
-La adaptación agrega el ID de la extensión utilizada por GDE Entre Ríos:
+**Manifiesto modificado (`cnmtoken.json`):**
 
 ```json
 {
@@ -109,250 +74,74 @@ La adaptación agrega el ID de la extensión utilizada por GDE Entre Ríos:
     "chrome-extension://pliddliphajaldpdihheppcdmoejfafn/"
   ]
 }
+
 ```
 
-El nombre del Native Messaging Host **no debe modificarse**, ya que la extensión utiliza:
-
-```javascript
-chrome.runtime.connectNative("gcbatoken");
-```
-
-## Registro de Windows
-
-Chrome busca el Native Messaging Host mediante:
-
-```text
-HKEY_LOCAL_MACHINE\SOFTWARE\Google\Chrome\NativeMessagingHosts\gcbatoken
-```
-
-El valor predeterminado de esta clave debe apuntar al manifiesto instalado, por ejemplo:
-
-```text
-C:\Program Files\GDE Firma Digital\cnmtoken.json
-```
-
-El MSI se encarga de crear esta entrada durante la instalación.
-
-## Compatibilidad con la extensión
-
-La extensión utilizada actualmente tiene:
-
-```text
-Manifest Version: 3
-Extension ID: pliddliphajaldpdihheppcdmoejfafn
-Version: 1.3.2
-```
-
-Su `main.js` utiliza:
-
-```javascript
-var hostName = "gcbatoken";
-
-port = chrome.runtime.connectNative(hostName);
-```
-
-Además, antes de enviar una solicitud al componente nativo agrega:
-
-```javascript
-request.version = "2.0";
-```
-
-Por lo tanto, el nombre del Native Messaging Host y el protocolo utilizado por la extensión deben mantenerse sin cambios.
-
-## Compatibilidad con GDE Entre Ríos
-
-La extensión declara dominios `*.gov.ar` dentro de `externally_connectable`, por lo que los sitios de GDE Entre Ríos bajo dominios `*.entrerios.gov.ar` pueden ser compatibles con la configuración actual de la extensión.
-
-Esto debe verificarse mediante una prueba real de firma.
-
-La modificación del MSI **no modifica automáticamente la extensión de Chrome ni garantiza la compatibilidad funcional del protocolo de firma**.
-
-## Requisitos
-
-* Windows 10/11
-* Google Chrome
-* Extensión `Firma con token`
-* ID de extensión:
-
-```text
-pliddliphajaldpdihheppcdmoejfafn
-```
-
-* Token/certificado digital compatible
-* Permisos administrativos para instalar el MSI
-
-## Instalación
-
-Ejecutar:
-
-```text
-token-service-entrerios.msi
-```
-
-como administrador.
-
-Una vez instalado, comprobar que exista:
-
-```text
-C:\Program Files\GDE Firma Digital\
-```
-
-y que contenga:
-
-```text
-tokensign.exe
-cnmtoken.json
-```
-
-También comprobar el registro:
-
-```text
-HKEY_LOCAL_MACHINE\SOFTWARE\Google\Chrome\NativeMessagingHosts\gcbatoken
-```
-
-El valor debe apuntar a:
-
-```text
-cnmtoken.json
-```
-
-## Verificación
-
-Después de instalar el MSI:
-
-1. Cerrar todas las ventanas de Chrome.
-2. Abrir Chrome nuevamente.
-3. Verificar que la extensión **Firma con token** esté instalada.
-4. Ingresar a GDE Entre Ríos.
-5. Realizar una operación que requiera firma digital.
-6. Verificar que Chrome pueda iniciar la comunicación con `gcbatoken`.
-7. Comprobar que el token/certificado sea detectado.
-8. Realizar una firma de prueba.
-
-## Diagnóstico
-
-Si Chrome informa que no puede conectarse con el Native Messaging Host, comprobar:
-
-### 1. Registro
-
-```cmd
-reg query "HKLM\SOFTWARE\Google\Chrome\NativeMessagingHosts\gcbatoken"
-```
-
-Debe devolver la ruta al manifiesto.
-
-### 2. Manifiesto
-
-Comprobar:
-
-```text
-name = gcbatoken
-type = stdio
-path = tokensign.exe
-```
-
-y que incluya:
-
-```text
-chrome-extension://pliddliphajaldpdihheppcdmoejfafn/
-```
-
-en `allowed_origins`.
-
-### 3. Ejecutable
-
-Comprobar que exista `tokensign.exe` en la ruta indicada por `path`.
-
-### 4. Arquitectura
-
-Verificar que `tokensign.exe` sea compatible con la arquitectura de Windows utilizada.
-
-## Build del MSI
-
-El MSI original fue construido utilizando:
-
-```text
-WiX Toolset 3.9
-```
-
-La reconstrucción debería conservar, en lo posible:
-
-* ProductCode
-* UpgradeCode
-* estructura de componentes
-* ejecutable `tokensign.exe`
-* Native Messaging Host `gcbatoken`
-
-La modificación principal consiste en actualizar el manifiesto `cnmtoken.json` y generar un nuevo paquete MSI.
-
-## Control de versiones
-
-No reemplazar el MSI original.
-
-Mantener versiones separadas:
-
-```text
-original/
-    token-service_v4.2.msi
-
-releases/
-    token-service-entrerios-1.0.0.msi
-```
-
-Esto permite comparar y volver a la versión original en caso de problemas.
-
-## Seguridad
-
-`tokensign.exe` debe considerarse un componente ejecutable de confianza.
-
-Antes de distribuir una nueva versión se recomienda registrar:
-
-```text
-SHA-256
-```
-
-del MSI y del ejecutable.
-
-Ejemplo:
-
-```powershell
-Get-FileHash .\token-service-entrerios-1.0.0.msi -Algorithm SHA256
-```
-
-También se recomienda comprobar la firma digital del ejecutable y del instalador antes de distribuirlos.
-
-## Estado del proyecto
-
-### Investigado
-
-* [x] Identificación del MSI
-* [x] Identificación del Native Messaging Host
-* [x] Identificación de `tokensign.exe`
-* [x] Identificación de `cnmtoken.json`
-* [x] Identificación de la extensión Chrome
-* [x] Comparación del nombre `gcbatoken`
-* [x] Identificación de `allowed_origins`
-* [x] Identificación del ID de extensión de Entre Ríos
-
-### Pendiente
-
-* [ ] Extraer y analizar `tokensign.exe`
-* [ ] Confirmar el protocolo de comunicación
-* [ ] Modificar `cnmtoken.json`
-* [ ] Generar MSI
-* [ ] Instalar en entorno de prueba
-* [ ] Probar comunicación Chrome → Native Host
-* [ ] Probar detección del token
-* [ ] Probar firma en GDE Entre Ríos
-* [ ] Validar instalación/desinstalación
-* [ ] Generar release
-
-## Licencia y procedencia
-
-Este repositorio contiene una adaptación de un instalador existente. Antes de distribuir públicamente el MSI modificado, verificar que se cuente con autorización para redistribuir `tokensign.exe` y los demás componentes originales.
+*Nota: El nombre interno del host (`gcbatoken`) no fue alterado, ya que el código de la extensión busca explícitamente esa nomenclatura para establecer la conexión.*
 
 ---
 
-**Proyecto:** Token Service — GDE Entre Ríos
-**Native Host:** `gcbatoken`
-**Chrome Extension:** `pliddliphajaldpdihheppcdmoejfafn`
+## Instalación y Verificación
+
+1. Descargar y ejecutar `token-service-er.msi` con permisos de Administrador.
+2. Comprobar que los archivos `tokensign.exe` y `cnmtoken.json` se hayan extraído en el directorio de instalación correspondiente en `Program Files`.
+3. Verificar la creación de la clave de registro que enlaza Chrome con el host local:
+```cmd
+reg query "HKLM\SOFTWARE\Google\Chrome\NativeMessagingHosts\gcbatoken"
+
+```
+
+
+*(El valor devuelto debe ser la ruta absoluta hacia el archivo `cnmtoken.json`)*.
+
+---
+
+## Diagnóstico de Errores
+
+Si Chrome informa que no puede establecer comunicación con el Native Messaging Host o la firma falla:
+
+1. **Validar extensión:** Confirmar que el ID de la extensión instalada en el navegador coincida exactamente con `pliddliphajaldpdihheppcdmoejfafn`.
+2. **Validar manifiesto:** Asegurarse de que el archivo `cnmtoken.json` instalado no contenga errores de sintaxis y tenga la ruta correcta hacia `tokensign.exe`.
+3. **Drivers del Token:** Comprobar que los controladores del dispositivo criptográfico (SafeNet, ePass, etc.) estén instalados y detectando el hardware en el sistema operativo local.
+
+---
+
+## Build del MSI modificado
+
+El paquete original fue construido con **WiX Toolset**. Para generar nuevas versiones sin romper dependencias internas:
+
+1. Extraer los binarios y el código fuente `.wxs` usando `dark.exe`.
+2. Modificar los archivos necesarios (ej. `cnmtoken.json`).
+3. Recompilar los objetos con `candle.exe`.
+4. Generar el instalador final con `light.exe`.
+
+Se conservaron el `ProductCode` y `UpgradeCode` originales para garantizar que el sistema lo reconozca como una actualización o reemplazo válido de la versión anterior.
+
+---
+
+## Estado del Proyecto
+
+### Completado ✔️
+
+* [x] Identificación del flujo nativo (`gcbatoken` -> `tokensign.exe`).
+* [x] Análisis del manifiesto de la extensión de Entre Ríos (`externally_connectable`).
+* [x] Descompilación del paquete MSI original.
+* [x] Modificación del manifiesto de Native Messaging (`allowed_origins`).
+* [x] Recompilación y empaquetado del nuevo `token-service-er.msi`.
+* [x] Despliegue en repositorio para descarga directa.
+* [x] Configuración y validación de redirección de descarga en entorno GDE de prueba.
+
+### Pendiente ⏳
+
+* [ ] Ejecutar pruebas de carga del certificado con token físico (SafeNet/Token USB).
+* [ ] Validar operación de firma digital completa dentro del módulo GEDO por parte de los funcionarios.
+
+---
+
+## Aviso de Seguridad y Procedencia
+
+Este repositorio distribuye una adaptación técnica orientada a mantener compatibilidad en entornos GDE. El ejecutable `tokensign.exe` es el binario original proveído en las distribuciones oficiales. Debido a que el reempaquetado invalida la firma digital original del instalador, los sistemas de seguridad como Windows SmartScreen pueden emitir una advertencia durante el primer despliegue.
+
+```
+
+```
